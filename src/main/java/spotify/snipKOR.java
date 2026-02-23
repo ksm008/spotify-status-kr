@@ -106,6 +106,8 @@ public class snipKOR {
     private static void startMusicTracking() {
         if (trayIcon != null) trayIcon.setToolTip("음악 정보를 가져오는 중...");
 
+        String lastTrackId = "";
+
         while (true) {
             try {
                 CurrentlyPlaying currentlyPlaying = spotifyApi.getUsersCurrentlyPlayingTrack()
@@ -113,53 +115,64 @@ public class snipKOR {
                         .build()
                         .execute();
 
+
                 if (currentlyPlaying == null || currentlyPlaying.getItem() == null) {
-                    clearFiles();
-                    if (trayIcon != null) trayIcon.setToolTip("일시 정지");
-                } else {
-                    String trackId = currentlyPlaying.getItem().getId();
-                    String trackJson = fetchTrackJsonDirectly(trackId, spotifyApi.getAccessToken());
-
-                    if (trackJson != null) {
-                        JsonObject root = JsonParser.parseString(trackJson).getAsJsonObject();
-
-
-                        String title = root.get("name").getAsString();
-
-                        // 콤마로 합치기
-                        JsonArray artistArray = root.getAsJsonArray("artists");
-                        List<String> artistNames = new ArrayList<>();
-                        for (JsonElement artistEl : artistArray) {
-                            artistNames.add(artistEl.getAsJsonObject().get("name").getAsString());
-                        }
-                        String artist = String.join(", ", artistNames);
-
-
-                        String album = root.getAsJsonObject("album").get("name").getAsString();
-
-
-                        String imageUrl = "";
-                        JsonArray images = root.getAsJsonObject("album").getAsJsonArray("images");
-                        for (int i = 0; i < images.size(); i++) {
-                            JsonObject img = images.get(i).getAsJsonObject();
-                            if (img.get("height").getAsInt() == 300) {
-                                imageUrl = img.get("url").getAsString();
-                                break;
-                            }
-                        }
-
-                        saveTextFile("Title.txt", title);
-                        saveTextFile("Artist.txt", artist);
-                        saveTextFile("Album.txt", album);
-                        saveTextFile("snipKOR.txt", title + " ― " + artist);
-                        saveImageFile("Cover.png", imageUrl);
-
-                        if (trayIcon != null) trayIcon.setToolTip("🎵 " + title + " - " + artist);
-
-                        System.out.println("🎵 현재 재생 중: " + title + " - " + artist);
+                    if (!lastTrackId.isEmpty()) {
+                        clearFiles();
+                        if (trayIcon != null) trayIcon.setToolTip("일시 정지");
+                        System.out.println("⏸️ 음악 일시 정지됨 (파일 초기화)");
+                        lastTrackId = "";
                     }
                 }
-                Thread.sleep(3000);
+
+                else {
+                    String trackId = currentlyPlaying.getItem().getId();
+
+                    if (!trackId.equals(lastTrackId)) {
+                        String trackJson = fetchTrackJsonDirectly(trackId, spotifyApi.getAccessToken());
+
+                        if (trackJson != null) {
+                            JsonObject root = JsonParser.parseString(trackJson).getAsJsonObject();
+
+                            String title = root.get("name").getAsString();
+
+                            // 콤마로 합치기
+                            JsonArray artistArray = root.getAsJsonArray("artists");
+                            List<String> artistNames = new ArrayList<>();
+                            for (JsonElement artistEl : artistArray) {
+                                artistNames.add(artistEl.getAsJsonObject().get("name").getAsString());
+                            }
+                            String artist = String.join(", ", artistNames);
+
+                            String album = root.getAsJsonObject("album").get("name").getAsString();
+
+                            String imageUrl = "";
+                            JsonArray images = root.getAsJsonObject("album").getAsJsonArray("images");
+                            for (int i = 0; i < images.size(); i++) {
+                                JsonObject img = images.get(i).getAsJsonObject();
+                                if (img.get("height").getAsInt() == 300) {
+                                    imageUrl = img.get("url").getAsString();
+                                    break;
+                                }
+                            }
+
+                            saveTextFile("Title.txt", title);
+                            saveTextFile("Artist.txt", artist);
+                            saveTextFile("Album.txt", album);
+                            saveTextFile("snipKOR.txt", title + " ― " + artist);
+                            saveImageFile("Cover.png", imageUrl);
+
+                            if (trayIcon != null) trayIcon.setToolTip("🎵 " + title + " - " + artist);
+                            System.out.println("🎵 노래 변경됨: " + title + " - " + artist);
+
+
+                            lastTrackId = trackId;
+                        }
+                    }
+                }
+
+                Thread.sleep(5000);
+
             } catch (Exception e) {
                 String errorMsg = e.getMessage();
 
@@ -170,18 +183,14 @@ public class snipKOR {
                         if (parts.length > 1 && parts[1] != null && !parts[1].equals("null")) {
                             waitSeconds = Integer.parseInt(parts[1]);
                         }
-                        System.out.println("🚨 [경고] API 호출 제한(Rate Limit)에 걸렸습니다!");
-                        System.out.println("⏳ 스포티파이의 지시에 따라 " + waitSeconds + "초 동안 대기합니다...");
+                        System.out.println("🚨 [경고] API 호출 제한! 스포티파이 지시에 따라 " + waitSeconds + "초 대기합니다...");
                         Thread.sleep(waitSeconds * 1000L);
                     } catch (Exception ignored) {}
                 }
                 else {
-                    System.out.println("⚠️ 스포티파이 통신 에러 (토큰 만료 의심) -> 갱신 시도");
+                    System.out.println("⚠️ 통신 에러 (토큰 갱신 시도)");
                     refreshAccessToken();
-                    try {
-                        Thread.sleep(5000);
-                    } catch (InterruptedException ignored) {
-                    }
+                    try { Thread.sleep(5000); } catch (InterruptedException ignored) {}
                 }
             }
         }
