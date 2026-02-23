@@ -39,6 +39,7 @@ public class snipKOR {
             .setClientSecret(CLIENT_SECRET)
             .setRedirectUri(URI.create(REDIRECT_URI))
             .build();
+
     private static final CountDownLatch latch = new CountDownLatch(1);
     private static TrayIcon trayIcon;
 
@@ -154,14 +155,33 @@ public class snipKOR {
                         saveImageFile("Cover.png", imageUrl);
 
                         if (trayIcon != null) trayIcon.setToolTip("🎵 " + title + " - " + artist);
+
+                        System.out.println("🎵 현재 재생 중: " + title + " - " + artist);
                     }
                 }
                 Thread.sleep(3000);
             } catch (Exception e) {
-                if (e.getMessage() != null && e.getMessage().contains("401")) refreshAccessToken();
-                try {
-                    Thread.sleep(5000);
-                } catch (InterruptedException ignored) {
+                String errorMsg = e.getMessage();
+
+                if (errorMsg != null && errorMsg.startsWith("429_TOO_MANY_REQUESTS")) {
+                    try {
+                        int waitSeconds = 10;
+                        String[] parts = errorMsg.split(":");
+                        if (parts.length > 1 && parts[1] != null && !parts[1].equals("null")) {
+                            waitSeconds = Integer.parseInt(parts[1]);
+                        }
+                        System.out.println("🚨 [경고] API 호출 제한(Rate Limit)에 걸렸습니다!");
+                        System.out.println("⏳ 스포티파이의 지시에 따라 " + waitSeconds + "초 동안 대기합니다...");
+                        Thread.sleep(waitSeconds * 1000L);
+                    } catch (Exception ignored) {}
+                }
+                else {
+                    System.out.println("⚠️ 스포티파이 통신 에러 (토큰 만료 의심) -> 갱신 시도");
+                    refreshAccessToken();
+                    try {
+                        Thread.sleep(5000);
+                    } catch (InterruptedException ignored) {
+                    }
                 }
             }
         }
@@ -174,7 +194,14 @@ public class snipKOR {
         conn.setRequestProperty("Authorization", "Bearer " + accessToken);
         conn.setRequestProperty("Accept-Language", "ko");
 
-        if (conn.getResponseCode() != 200) return null;
+        int responseCode = conn.getResponseCode();
+
+        if (responseCode == 429) {
+            String retryAfter = conn.getHeaderField("Retry-After");
+            throw new RuntimeException("429_TOO_MANY_REQUESTS:" + retryAfter);
+        }
+
+        if (responseCode != 200) return null;
 
         BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8));
         StringBuilder sb = new StringBuilder();
@@ -188,7 +215,9 @@ public class snipKOR {
         try {
             var credentials = spotifyApi.authorizationCodeRefresh().build().execute();
             spotifyApi.setAccessToken(credentials.getAccessToken());
-        } catch (Exception ignored) {
+            System.out.println("✅ 토큰 갱신 성공! 다시 음악 정보를 가져옵니다.");
+        } catch (Exception e) {
+            System.err.println("❌ 토큰 갱신 실패: " + e.getMessage());
         }
     }
 
